@@ -5,10 +5,14 @@ import (
 	"testing"
 )
 
-// TestRaftGRPCTransportImplementsRaftTransport tests the raft grpc transport implementation.
+// TestRaftGRPCTransportImplementsRaftTransport checks if the transport implements the raft interface correctly
 func TestRaftGRPCTransportImplementsRaftTransport(t *testing.T) {
-	var typeAssertion raft.Transport = NewTransport()
+	var typeAssertion raft.Transport = &RaftGRPCTransport{}
+	_ = typeAssertion
 }
+
+// TestRaftGRPCTransportImplementsService checks if the transport implements the server interface correctly
 func TestRaftGRPCTransportImplementsService(t *testing.T) {
-	var typeAssertion RaftServiceServer = NewTransport()
+	var typeAssertion RaftServiceServer = (&RaftGRPCTransport{}).GetServerService()
+	_ = typeAssertion
 }

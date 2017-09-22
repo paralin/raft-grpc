@@ -11,5 +11,5 @@
 
 **raft-grpc** includes a GRPC service definition and implementation of a server and client for pipelining [raft](https://github.com/hashicorp/raft) streams over GRPC.
 
-To use it in your project, include the client or server package and add the service to your GRPC server.
+To use it in your project, include the package and add the service to your GRPC server. The RaftGRPCTransport can be used as a raft.Transport object, and the GetServerService call will return the GRPC service implementation for your listener side.
 
