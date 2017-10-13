@@ -14,11 +14,11 @@ enum LogEntryType {
 message LogEntry {
   // Index holds the index of the log entry.
   uint64 index = 1;
-	// Term holds the election term of the log entry.
+  // Term holds the election term of the log entry.
   uint64 term = 2;
-	// Type holds the type of the log entry.
+  // Type holds the type of the log entry.
   LogEntryType type = 3;
-	// Data holds the log entry's type-specific data.
+  // Data holds the log entry's type-specific data.
   bytes data = 4;
 }
 
@@ -48,11 +48,11 @@ message AppendEntriesRequest {
 message AppendEntriesResponse {
   // Term is the newer term if the leader is out of date.
   uint64 term = 1;
-	// LastLog is a hint to help accelerate rebuilding slow nodes.
+  // LastLog is a hint to help accelerate rebuilding slow nodes.
   uint64 last_log = 2;
-	// Success will be false if we have a conflicting entry.
+  // Success will be false if we have a conflicting entry.
   bool success = 3;
-	// NoRetryBackoff indicates we don't need to backoff the next attempt.
+  // NoRetryBackoff indicates we don't need to backoff the next attempt.
   bool no_retry_backoff = 4;
 }
 
