@@ -35,7 +35,7 @@ func (r *AppendEntriesRequest) ToRaft() interface{} {
 	o.Leader = make([]byte, len(r.Leader))
 	copy(o.Leader, r.Leader)
 	for _, entry := range r.Entries {
-		o.Entries = append(o.Entries, entry.ToRaft().(*raft.Log))
+		o.Entries = append(o.Entries, entry.ToRaft())
 	}
 
 	return o
@@ -54,7 +54,7 @@ func NewLogEntry(l *raft.Log) *LogEntry {
 }
 
 // ToRaft converts to the equivalent raft type.
-func (r *LogEntry) ToRaft() interface{} {
+func (r *LogEntry) ToRaft() *raft.Log {
 	o := &raft.Log{
 		Index: r.Index,
 		Term:  r.Term,
@@ -63,6 +63,15 @@ func (r *LogEntry) ToRaft() interface{} {
 	o.Data = make([]byte, len(r.Data))
 	copy(o.Data, r.Data)
 	return o
+}
+
+// CopyRaft converts to the equivalent raft type.
+func (r *LogEntry) CopyRaft(log *raft.Log) {
+	log.Index = r.Index
+	log.Term = r.Term
+	log.Type = raft.LogType(r.Type)
+	log.Data = make([]byte, len(r.Data))
+	copy(log.Data, r.Data)
 }
 
 // NewAppendEntriesResponse builds a new AppendEntriesResponse from a raft AppendEntriesResponse object.
