@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"errors"
-	"fmt"
 	"github.com/golang/protobuf/proto"
+	"google.golang.org/grpc"
 	"github.com/hashicorp/raft"
 )
 
@@ -27,6 +27,8 @@ type RaftGRPCTransport struct {
 
 	heartbeatHandlerMtx sync.RWMutex
 	heartbeatHandler    func(rpc raft.RPC)
+
+	grpcDialOptions []grpc.DialOption
 }
 
 // raftGrpcTransportServer is the server wrapping the transport object
@@ -35,12 +37,13 @@ type raftGrpcTransportServer struct {
 }
 
 // NewTransport builds a new transport service.
-func NewTransport(ctx context.Context, localAddress raft.ServerAddress) *RaftGRPCTransport {
+func NewTransport(ctx context.Context, localAddress raft.ServerAddress, opts ...grpc.DialOption) *RaftGRPCTransport {
 	return &RaftGRPCTransport{
-		ctx:          ctx,
-		localAddress: localAddress,
-		peers:        make(map[raft.ServerAddress]RaftServiceClient),
-		rpcCh:        make(chan raft.RPC),
+		ctx:             ctx,
+		localAddress:    localAddress,
+		peers:           make(map[raft.ServerAddress]RaftServiceClient),
+		rpcCh:           make(chan raft.RPC),
+		grpcDialOptions: opts,
 	}
 }
 
@@ -49,11 +52,15 @@ func (t *RaftGRPCTransport) getPeerClient(target raft.ServerAddress) (RaftServic
 	t.peersMtx.RLock()
 	defer t.peersMtx.RUnlock()
 
-	client, ok := t.peers[target]
-	if !ok {
-		return nil, fmt.Errorf("no connection to peer is available: %s", target)
+	if _, ok := t.peers[target]; !ok {
+		conn, err := grpc.Dial(target, ...t.grpcDialOptions)
+		if err != nil {
+			return nil, err
+		}
+		t.peers[target] = NewRaftServiceClient(conn)
+		//return nil, fmt.Errorf("no connection to peer is available: %s", target)
 	}
-	return client, nil
+	return t.peers[target], nil
 }
 
 // Consumer returns a channel that raft uses to process incoming requests.
