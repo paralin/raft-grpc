@@ -9,8 +9,8 @@ import (
 
 	"errors"
 	"github.com/golang/protobuf/proto"
-	"google.golang.org/grpc"
 	"github.com/hashicorp/raft"
+	"google.golang.org/grpc"
 )
 
 var rpcMaxPipeline int = 20
@@ -53,7 +53,7 @@ func (t *RaftGRPCTransport) getPeerClient(target raft.ServerAddress) (RaftServic
 	defer t.peersMtx.RUnlock()
 
 	if _, ok := t.peers[target]; !ok {
-		conn, err := grpc.Dial(target, ...t.grpcDialOptions)
+		conn, err := grpc.Dial(target, t.grpcDialOptions...)
 		if err != nil {
 			return nil, err
 		}
