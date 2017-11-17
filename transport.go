@@ -2,14 +2,15 @@ package raftgrpc
 
 import (
 	"bytes"
-	"context"
+	"golang.org/x/net/context"
 	"io"
 	"sync"
 	"time"
 
+	"errors"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hashicorp/raft"
-	"github.com/pkg/errors"
 )
 
 var rpcMaxPipeline int = 20
@@ -18,11 +19,11 @@ var rpcMaxPipeline int = 20
 type RaftGRPCTransport struct {
 	ctx context.Context
 
-	peers    map[string]RaftServiceClient
+	peers    map[raft.ServerAddress]RaftServiceClient
 	peersMtx sync.RWMutex
 
-	rpcCh   chan raft.RPC
-	localId string
+	rpcCh        chan raft.RPC
+	localAddress raft.ServerAddress
 
 	heartbeatHandlerMtx sync.RWMutex
 	heartbeatHandler    func(rpc raft.RPC)
@@ -34,23 +35,23 @@ type raftGrpcTransportServer struct {
 }
 
 // NewTransport builds a new transport service.
-func NewTransport(ctx context.Context, localId string) *RaftGRPCTransport {
+func NewTransport(ctx context.Context, localAddress raft.ServerAddress) *RaftGRPCTransport {
 	return &RaftGRPCTransport{
-		ctx:     ctx,
-		localId: localId,
-		peers:   make(map[string]RaftServiceClient),
-		rpcCh:   make(chan raft.RPC),
+		ctx:          ctx,
+		localAddress: localAddress,
+		peers:        make(map[raft.ServerAddress]RaftServiceClient),
+		rpcCh:        make(chan raft.RPC),
 	}
 }
 
 // getPeerClient looks up a peer client.
-func (t *RaftGRPCTransport) getPeerClient(target string) (RaftServiceClient, error) {
+func (t *RaftGRPCTransport) getPeerClient(target raft.ServerAddress) (RaftServiceClient, error) {
 	t.peersMtx.RLock()
 	defer t.peersMtx.RUnlock()
 
 	client, ok := t.peers[target]
 	if !ok {
-		return nil, errors.Errorf("no connection to peer is available: %s", target)
+		return nil, fmt.Errorf("no connection to peer is available: %s", target)
 	}
 	return client, nil
 }
@@ -61,8 +62,8 @@ func (t *RaftGRPCTransport) Consumer() <-chan raft.RPC {
 }
 
 // LocalAddr returns the local address to distinguish from peers.
-func (t *RaftGRPCTransport) LocalAddr() string {
-	return t.localId
+func (t *RaftGRPCTransport) LocalAddr() raft.ServerAddress {
+	return t.localAddress
 }
 
 // callAppendPipeline implements raft.AppendPipeline for a running GRPC streaming call.
@@ -200,7 +201,7 @@ func (p *callAppendPipeline) Close() error {
 }
 
 // AppendEntriesPipeline returns an interface that can be used to pipeline AppendEntries requests.
-func (t *RaftGRPCTransport) AppendEntriesPipeline(target string) (raft.AppendPipeline, error) {
+func (t *RaftGRPCTransport) AppendEntriesPipeline(id raft.ServerID, target raft.ServerAddress) (raft.AppendPipeline, error) {
 	conn, err := t.getPeerClient(target)
 	if err != nil {
 		return nil, err
@@ -224,7 +225,8 @@ func (t *RaftGRPCTransport) AppendEntriesPipeline(target string) (raft.AppendPip
 
 // AppendEntries sends the appropriate RPC to the target node.
 func (t *RaftGRPCTransport) AppendEntries(
-	target string,
+	id raft.ServerID,
+	target raft.ServerAddress,
 	args *raft.AppendEntriesRequest,
 	resp *raft.AppendEntriesResponse,
 ) error {
@@ -246,7 +248,8 @@ func (t *RaftGRPCTransport) AppendEntries(
 
 // RequestVote sends the appropriate RPC to the target node.
 func (t *RaftGRPCTransport) RequestVote(
-	target string,
+	id raft.ServerID,
+	target raft.ServerAddress,
 	args *raft.RequestVoteRequest,
 	resp *raft.RequestVoteResponse,
 ) error {
@@ -269,7 +272,8 @@ func (t *RaftGRPCTransport) RequestVote(
 // InstallSnapshot is used to push a snapshot down to a follower. The data is read from
 // the ReadCloser and streamed to the client.
 func (t *RaftGRPCTransport) InstallSnapshot(
-	target string,
+	id raft.ServerID,
+	target raft.ServerAddress,
 	args *raft.InstallSnapshotRequest,
 	resp *raft.InstallSnapshotResponse,
 	data io.Reader,
@@ -297,16 +301,16 @@ func (t *RaftGRPCTransport) InstallSnapshot(
 }
 
 // EncodePeer is used to serialize a peer name.
-func (*RaftGRPCTransport) EncodePeer(peerName string) []byte {
-	dat, _ := proto.Marshal(&PeerNameContainer{PeerName: peerName})
+func (*RaftGRPCTransport) EncodePeer(id raft.ServerID, peerName raft.ServerAddress) []byte {
+	dat, _ := proto.Marshal(&PeerNameContainer{PeerName: string(peerName)})
 	return dat
 }
 
 // DecodePeer is used to deserialize a peer name.
-func (*RaftGRPCTransport) DecodePeer(dat []byte) string {
+func (*RaftGRPCTransport) DecodePeer(dat []byte) raft.ServerAddress {
 	ctr := &PeerNameContainer{}
 	_ = proto.Unmarshal(dat, ctr)
-	return ctr.PeerName
+	return raft.ServerAddress(ctr.PeerName)
 }
 
 // SetHeartbeatHandler is used to setup a heartbeat handler
@@ -461,15 +465,15 @@ func (t *raftGrpcTransportServer) InstallSnapshot(
 }
 
 // AddPeer adds a peer by id to the transport.
-func (t *RaftGRPCTransport) AddPeer(id string, peerConn RaftServiceClient) {
+func (t *RaftGRPCTransport) AddPeer(id raft.ServerID, target raft.ServerAddress, peerConn RaftServiceClient) {
 	t.peersMtx.Lock()
-	t.peers[id] = peerConn
+	t.peers[target] = peerConn
 	t.peersMtx.Unlock()
 }
 
 // RemovePeer removes a peer by id from the transport.
-func (t *RaftGRPCTransport) RemovePeer(id string) {
+func (t *RaftGRPCTransport) RemovePeer(id raft.ServerID, target raft.ServerAddress) {
 	t.peersMtx.Lock()
-	delete(t.peers, id)
+	delete(t.peers, target)
 	t.peersMtx.Unlock()
 }
