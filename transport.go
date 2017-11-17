@@ -20,7 +20,7 @@ type RaftGRPCTransport struct {
 	ctx context.Context
 
 	peers    map[raft.ServerAddress]RaftServiceClient
-	peersMtx sync.RWMutex
+	peersMtx sync.Mutex
 
 	rpcCh        chan raft.RPC
 	localAddress raft.ServerAddress
@@ -49,11 +49,11 @@ func NewTransport(ctx context.Context, localAddress raft.ServerAddress, opts ...
 
 // getPeerClient looks up a peer client.
 func (t *RaftGRPCTransport) getPeerClient(target raft.ServerAddress) (RaftServiceClient, error) {
-	t.peersMtx.RLock()
-	defer t.peersMtx.RUnlock()
+	t.peersMtx.Lock()
+	defer t.peersMtx.Unlock()
 
 	if _, ok := t.peers[target]; !ok {
-		conn, err := grpc.Dial(target, t.grpcDialOptions...)
+		conn, err := grpc.Dial(string(target), t.grpcDialOptions...)
 		if err != nil {
 			return nil, err
 		}
