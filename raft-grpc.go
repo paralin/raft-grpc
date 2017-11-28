@@ -37,6 +37,7 @@ func (r *AppendEntriesRequest) ToRaft() interface{} {
 	for _, entry := range r.Entries {
 		o.Entries = append(o.Entries, entry.ToRaft())
 	}
+	o.ProtocolVersion = raft.ProtocolVersionMax
 
 	return o
 }
@@ -90,6 +91,7 @@ func (r *AppendEntriesResponse) CopyToRaft(o *raft.AppendEntriesResponse) {
 	o.LastLog = r.LastLog
 	o.Success = r.Success
 	o.NoRetryBackoff = r.NoRetryBackoff
+	o.ProtocolVersion = raft.ProtocolVersionMax
 }
 
 // NewRequestVoteRequest builds the RequestVoteRequest message from the equivalent raft type.
@@ -111,6 +113,7 @@ func (r *RequestVoteRequest) ToRaft() interface{} {
 		LastLogIndex: r.LastLogIndex,
 		LastLogTerm:  r.LastLogTerm,
 	}
+	o.ProtocolVersion = raft.ProtocolVersionMax
 	o.Candidate = make([]byte, len(r.Candidate))
 	copy(o.Candidate, r.Candidate)
 	return o
@@ -129,6 +132,7 @@ func NewRequestVoteResponse(r *raft.RequestVoteResponse) *RequestVoteResponse {
 
 // ToRaft converts to the equivalent raft type.
 func (r *RequestVoteResponse) CopyToRaft(o *raft.RequestVoteResponse) {
+	o.ProtocolVersion = raft.ProtocolVersionMax
 	o.Term = r.Term
 	o.Granted = r.Granted
 	o.Peers = make([]byte, len(r.Peers))
@@ -162,6 +166,7 @@ func (r *InstallSnapshotRequest) ToRaft() interface{} {
 		LastLogTerm:  r.LastLogTerm,
 		Size:         int64(len(r.Snapshot)),
 	}
+	o.ProtocolVersion = raft.ProtocolVersionMax
 	o.Leader = make([]byte, len(r.Leader))
 	copy(o.Leader, r.Leader)
 	o.Peers = make([]byte, len(r.Peers))
@@ -181,4 +186,5 @@ func NewInstallSnapshotResponse(r *raft.InstallSnapshotResponse) *InstallSnapsho
 func (r *InstallSnapshotResponse) CopyToRaft(resp *raft.InstallSnapshotResponse) {
 	resp.Term = r.Term
 	resp.Success = r.Success
+	resp.ProtocolVersion = raft.ProtocolVersionMax
 }
