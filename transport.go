@@ -490,14 +490,10 @@ type snapshotReader struct {
 	leftOver []byte
 }
 
-func (r *snapshotReader) Read(b []byte) (n int, err error) {
+func (r *snapshotReader) Read(b []byte) (int, error) {
 	if len(r.leftOver) > 0 {
 		n := copy(b, r.leftOver)
-		if n == len(r.leftOver) {
-			r.leftOver = nil
-		} else {
-			r.leftOver = r.leftOver[n:]
-		}
+		r.leftOver = r.leftOver[n:]
 		return n, nil
 	}
 
@@ -506,7 +502,8 @@ func (r *snapshotReader) Read(b []byte) (n int, err error) {
 		return 0, err
 	}
 	d := x.GetData()
-	if n := copy(b, d); n < len(d) {
+	n := copy(b, d)
+	if n < len(d) {
 		r.leftOver = d[n:]
 	}
 	return n, nil
