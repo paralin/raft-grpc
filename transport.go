@@ -1,7 +1,6 @@
 package raftgrpc
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"sync"
@@ -285,20 +284,38 @@ func (t *RaftGRPCTransport) InstallSnapshot(
 		return err
 	}
 
-	snp, err := NewInstallSnapshotRequest(args, data)
+	ssr, err := NewInstallSnapshotRequest(args)
 	if err != nil {
 		return err
 	}
 
-	res, err := client.InstallSnapshot(
-		t.ctx,
-		snp,
-	)
+	c, err := client.InstallSnapshot(t.ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.Send(&InstallSnapshotStream{Payload: &InstallSnapshotStream_Request{Request: ssr}}); err != nil {
+		return err
+	}
+
+	for {
+		var buf [4096]byte
+		n, err := data.Read(buf[:])
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if err := c.Send(&InstallSnapshotStream{Payload: &InstallSnapshotStream_Data{Data: buf[:n]}}); err != nil {
+			return err
+		}
+	}
+
+	res, err := c.CloseAndRecv()
 	if err != nil {
 		return err
 	}
 	res.CopyToRaft(resp)
-
 	return nil
 }
 
@@ -330,6 +347,26 @@ func (t *RaftGRPCTransport) SetHeartbeatHandler(
 // GetServerService returns a wrapper that contains the server methods.
 func (t *RaftGRPCTransport) GetServerService() RaftServiceServer {
 	return &raftGrpcTransportServer{RaftGRPCTransport: t}
+}
+
+// TimeoutNow is used to start a leadership transfer to the target node.
+func (t *RaftGRPCTransport) TimeoutNow(
+	target raft.ServerID,
+	addr raft.ServerAddress,
+	args *raft.TimeoutNowRequest,
+	resp *raft.TimeoutNowResponse,
+) error {
+	client, err := t.getPeerClient(string(addr))
+	if err != nil {
+		return err
+	}
+
+	res, err := client.TimeoutNow(t.ctx, NewTimeoutNowRequest(args))
+	if err != nil {
+		return err
+	}
+	res.CopyToRaft(resp)
+	return nil
 }
 
 // AppendEntriesPipeline receives an AppendEntries message stream open request.
@@ -448,21 +485,58 @@ func (t *raftGrpcTransportServer) RequestVote(
 	), nil
 }
 
-// InstallSnapshot is the command sent to a Raft peer to bootstrap its log (and state machine) from a snapshot on another peer.
-func (t *raftGrpcTransportServer) InstallSnapshot(
-	ctx context.Context,
-	req *InstallSnapshotRequest,
-) (*InstallSnapshotResponse, error) {
-	ri, err := t.processRpc(
-		req,
-		bytes.NewReader(req.GetSnapshot()),
-	)
+type snapshotReader struct {
+	s        RaftService_InstallSnapshotServer
+	leftOver []byte
+}
 
+func (r *snapshotReader) Read(b []byte) (n int, err error) {
+	if len(r.leftOver) > 0 {
+		n := copy(b, r.leftOver)
+		if n == len(r.leftOver) {
+			r.leftOver = nil
+		} else {
+			r.leftOver = r.leftOver[n:]
+		}
+		return n, nil
+	}
+
+	x, err := r.s.Recv()
+	if err != nil {
+		return 0, err
+	}
+	d := x.GetData()
+	if n := copy(b, d); n < len(d) {
+		r.leftOver = d[n:]
+	}
+	return n, nil
+}
+
+// InstallSnapshot is the command sent to a Raft peer to bootstrap its log (and state machine) from a snapshot on another peer.
+func (t *raftGrpcTransportServer) InstallSnapshot(s RaftService_InstallSnapshotServer) error {
+	req, err := s.Recv()
+	if err != nil {
+		return err
+	}
+
+	ri, err := t.processRpc(req.GetRequest(), &snapshotReader{s, nil})
+	if err != nil {
+		return err
+	}
+	return s.SendAndClose(NewInstallSnapshotResponse(ri.(*raft.InstallSnapshotResponse)))
+}
+
+// TimeoutNow is used to start a leadership transfer to the target node.
+func (t *raftGrpcTransportServer) TimeoutNow(
+	ctx context.Context,
+	req *TimeoutNowRequest,
+) (*TimeoutNowResponse, error) {
+	ri, err := t.processRpc(req, nil)
 	if err != nil {
 		return nil, err
 	}
-	return NewInstallSnapshotResponse(
-		ri.(*raft.InstallSnapshotResponse),
+	return NewTimeoutNowResponse(
+		ri.(*raft.TimeoutNowResponse),
 	), nil
 }
 

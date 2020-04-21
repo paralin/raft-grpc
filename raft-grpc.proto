@@ -5,9 +5,15 @@ package raftgrpc;
 enum LogEntryType {
   LOG_ENTRY_COMMAND = 0;
   LOG_ENTRY_NOOP = 1;
-  LOG_ENTRY_ADD_PEER = 2;
-  LOG_ENTRY_REMOVE_PEER = 3;
+  LOG_ENTRY_ADD_PEER_DEPRECATED = 2;
+  LOG_ENTRY_REMOVE_PEER_DEPRECATED = 3;
   LOG_ENTRY_BARRIER = 4;
+  LOG_ENTRY_CONFIGURATION = 5;
+}
+
+// RaftHeader describes information contained in every RPC command + response.
+message RaftHeader {
+  int32 protocol_version = 1;
 }
 
 // LogEntry contains a raft log entry.
@@ -20,6 +26,8 @@ message LogEntry {
   LogEntryType type = 3;
   // Data holds the log entry's type-specific data.
   bytes data = 4;
+  // Extensions holds an opaque byte slice of information for middleware.
+  bytes extensions = 5;
 }
 
 // PeerNameContainer encodes a peer name to bytes.
@@ -42,6 +50,8 @@ message AppendEntriesRequest {
   repeated LogEntry entries = 5;
   // LeaderCommitIndex is the commit index on the leader.
   uint64 leader_commit_index = 6;
+
+  RaftHeader raft_header = 99;
 }
 
 // AppendEntriesResponse is the response to the appendentries request.
@@ -54,6 +64,8 @@ message AppendEntriesResponse {
   bool success = 3;
   // NoRetryBackoff indicates we don't need to backoff the next attempt.
   bool no_retry_backoff = 4;
+
+  RaftHeader raft_header = 99;
 }
 
 // RequestVoteRequest is the command used by a candidate to ask a Raft peer for a vote in an election.
@@ -66,6 +78,11 @@ message RequestVoteRequest {
   uint64 last_log_index = 3;
   // LastLogTerm is the last log term.
   uint64 last_log_term = 4;
+  // LeadershipTransfer indicates to peers if the vote was triggered by
+  // a leadership transfer.
+  bool leadership_transfer = 5;
+
+  RaftHeader raft_header = 99;
 }
 
 // RequestVoteResponse is the response returned from a RequestVoteRequest.
@@ -76,6 +93,16 @@ message RequestVoteResponse {
   bytes peers = 2;
   // Granted if the vote was granted.
   bool granted = 3;
+
+  RaftHeader raft_header = 99;
+}
+
+// InstallSnapshotStream encodes information used when transmitting a snapshot.
+message InstallSnapshotStream {
+  oneof payload {
+    InstallSnapshotRequest request = 1;
+    bytes data = 2;
+  };
 }
 
 // InstallSnapshotRequest is the command sent to a Raft peer to bootstrap its log (and state machine) from a snapshot on another peer.
@@ -90,8 +117,14 @@ message InstallSnapshotRequest {
   uint64 last_log_term = 4;
   // Peers is the peer set in the snapshot
   bytes peers = 5;
-  // Snapshot is the body of the snapshot.
-  bytes snapshot = 6;
+  // Configuration stores the cluster membership information.
+  bytes configuration = 6;
+  // ConfigurationIdx is the log index where configuration was originally committed.
+  uint64 config_idx = 7;
+  // Size is the size of the snapshot.
+  int64 size = 8;
+
+  RaftHeader raft_header = 99;
 }
 
 // InstallSnapshotResponse is the response to the InstallSnapshot call.
@@ -100,9 +133,11 @@ message InstallSnapshotResponse {
   uint64 term = 1;
   // Success indiciates if the snapshot was installed properly.
   bool success = 2;
+
+  RaftHeader raft_header = 99;
 }
 
-// AppendEntriesPipelineResponse is the wrapper of an AmendEntriesResponse in a pipeline.
+// AppendEntriesPipelineResponse is the wrapper of an AppendEntriesResponse in a pipeline.
 message AppendEntriesPipelineResponse {
   // Error is any potential error.
   string error = 1;
@@ -110,6 +145,15 @@ message AppendEntriesPipelineResponse {
   AppendEntriesResponse response = 2;
 }
 
+// TimeoutNowRequest is the command used by a leader to signal another server to start an election.
+message TimeoutNowRequest {
+  RaftHeader raft_header = 99;
+}
+
+// TimeoutNowResponse is the response to TimeoutNowRequest.
+message TimeoutNowResponse {
+  RaftHeader raft_header = 99;
+}
 
 // RaftService implements the raft pipelining receiver.
 service RaftService {
@@ -120,5 +164,7 @@ service RaftService {
   // RequestVote is the command used by a candidate to ask a Raft peer for a vote in an election.
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
   // InstallSnapshot is the command sent to a Raft peer to bootstrap its log (and state machine) from a snapshot on another peer.
-  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse) {}
+  rpc InstallSnapshot(stream InstallSnapshotStream) returns (InstallSnapshotResponse) {}
+  // TimeoutNow is used to start a leadership transfer to the target node.
+  rpc TimeoutNow(TimeoutNowRequest) returns (TimeoutNowResponse) {}
 }
