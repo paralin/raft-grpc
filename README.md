@@ -1,5 +1,7 @@
 # Raft GRPC
 
+This project is **no longer maintained**. You might be interested in https://github.com/Jille/raft-grpc-transport instead.
+
 [![GoDoc Widget]][GoDoc] [![Go Report Card Widget]][Go Report Card]
 
 [GoDoc]: https://godoc.org/github.com/paralin/raft-grpc
